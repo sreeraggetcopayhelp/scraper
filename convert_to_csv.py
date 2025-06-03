@@ -20,7 +20,10 @@ for entry in data:
             "prog_name": prog_name,
             "source": source,
             "covered_drugs.name": "",
-            "covered_drugs.generic": ""
+            "covered_drugs.generic": "",
+            "standerdised_drug": "",
+            "standerdised_program": ""
+
         })
     else:
         for drug in covered_drugs:
@@ -29,12 +32,14 @@ for entry in data:
                 "prog_name": prog_name,
                 "source": source,
                 "covered_drugs.name": drug.get("name", ""),
-                "covered_drugs.generic": drug.get("generic", "")
+                "covered_drugs.generic": drug.get("generic", ""),
+                "standerdised_drug": "",
+                "standerdised_program": ""
             })
 
 # Write to CSV
 with open("flattened_covered_drugs.csv", "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=["id", "prog_name", "source", "covered_drugs.name", "covered_drugs.generic"])
+    writer = csv.DictWriter(f, fieldnames=["id", "prog_name", "source", "covered_drugs.name", "covered_drugs.generic", "standerdised_drug", "standerdised_program"])
     writer.writeheader()
     writer.writerows(flattened_data)
 
