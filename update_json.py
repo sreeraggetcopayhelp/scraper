@@ -1,35 +1,34 @@
 import pandas as pd
 import json
 
-# Load CSV data
+# Load CSV
 csv_path = "flattened_covered_drugs_standardized.csv"
 df = pd.read_csv(csv_path)
 
-# Group by prog_name to gather standerdised_drug and standerdised_program
-grouped_data = (
-    df.groupby("prog_name")
-    .apply(lambda x: {
-        "standerdised_drug": sorted(set(x["standerdised_drug"].dropna())),
-        "standerdised_program": sorted(set(x["standerdised_program"].dropna()))
-    })
-    .to_dict()
-)
+# Filter out rows with missing drug names
+df = df.dropna(subset=["covered_drugs.name", "standerdised_drug"])
 
-# Load original JSON data
-json_path = "dev_backup.json"
-with open(json_path, "r") as f:
-    json_data = json.load(f)
+# Build a lookup: {(prog_name, covered_drugs.name): standerdised_drug}
+drug_lookup = {
+    (row["prog_name"], row["covered_drugs.name"]): row["standerdised_drug"]
+    for _, row in df.iterrows()
+}
 
-# Update JSON records with data from CSV
-for entry in json_data:
+# Load JSON
+with open("dev_backup.json", "r") as f:
+    data = json.load(f)
+
+# Update JSON covered_drugs
+for entry in data:
     prog_name = entry.get("prog_name")
-    if prog_name in grouped_data:
-        entry["standerdised_drug"] = grouped_data[prog_name]["standerdised_drug"]
-        entry["standerdised_program"] = grouped_data[prog_name]["standerdised_program"]
+    for drug in entry.get("covered_drugs", []):
+        drug_name = drug.get("name")
+        key = (prog_name, drug_name)
+        if key in drug_lookup:
+            drug["standerdised_drug"] = drug_lookup[key]
 
 # Save updated JSON
-output_path = "dev_backup_updated.json"
-with open(output_path, "w") as f:
-    json.dump(json_data, f, indent=2)
+with open("dev_backup_updated.json", "w") as f:
+    json.dump(data, f, indent=2)
 
-print("Updated JSON saved to:", output_path)
+print("Updated JSON saved as dev_backup_updated.json")
