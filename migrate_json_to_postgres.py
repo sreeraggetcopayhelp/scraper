@@ -216,6 +216,8 @@ def insert_program_contact_details(cur, program_id, contact):
     for key in ["phonenumber", "fax", "email"]:
         value = contact.get(key)
         if value:
+            if key=="phonenumber":
+                key="phone"
             cur.execute("""
                 INSERT INTO program_details (program_id, attr, value, created_at, updated_at)
                 VALUES (%s, %s, %s, NOW(), NOW())
@@ -265,7 +267,7 @@ def insert_income_eligibility(cur, program_id, fpl_percent, state_id=1):
             created_at,
             updated_at
         ) VALUES (%s, %s, %s, NOW(), NOW())
-    """, (program_id, state_id, fpl_percent))
+    """, (program_id, state_id, fpl_percent+"%"))
 
 def link_tables(cur, table, cols, values):
     cur.execute(f"""
