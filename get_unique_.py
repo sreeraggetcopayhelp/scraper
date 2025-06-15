@@ -20,7 +20,7 @@ with open("json_with_standardised_drugs_embedded.json", "r") as f:
 # print(insurance_types)
 
 
-# Extract unique house_hold_income values
-house_hold_income = sorted({str(entry.get("house_hold_income_limit_fpl_percent", "")).strip() for entry in data if "house_hold_income_limit_fpl_percent" in entry})
-print(house_hold_income)
+# # Extract unique house_hold_income values
+# house_hold_income = sorted({str(entry.get("house_hold_income_limit_fpl_percent", "")).strip() for entry in data if "house_hold_income_limit_fpl_percent" in entry})
+# print(house_hold_income)
 

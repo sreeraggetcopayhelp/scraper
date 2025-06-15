@@ -1,4 +1,3 @@
-
 import json
 import psycopg2
 from tqdm import tqdm
@@ -6,10 +5,10 @@ import uuid
 
 # --- Configuration ---
 DB_CONFIG = {
-    "dbname": "your_db",
-    "user": "your_user",
-    "password": "your_pass",
-    "host": "localhost"
+    "dbname": "get_copay_development",
+    "user": "",
+    "password": "",
+    "host": ""
 }
 JSON_PATH = "json_with_standardised_drugs_embedded.json"
 
@@ -105,8 +104,8 @@ def map_status(status):
 def get_or_create_program(cur, prog):
     # Check if the program already exists
     cur.execute("""
-        SELECT id FROM programs WHERE name = %s AND source = %s
-    """, (prog["prog_name"], map_source(prog["source"])))
+    SELECT id FROM programs WHERE LOWER(name) = %s AND source = %s
+    """, (prog["prog_name"].strip().lower(), map_source(prog["source"])))
     result = cur.fetchone()
     if result:
         return result[0]
@@ -130,7 +129,7 @@ def get_or_create_program(cur, prog):
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
         RETURNING id
     """, (
-        prog.get("prog_name"),
+        prog.get("prog_name").strip().lower(),  # instead of raw name
         map_source(prog.get("source")),
         prog.get("_id", {}).get("$oid"),                  # Assuming source_id = MongoDB _id
         prog.get("fund_url"),
@@ -150,7 +149,9 @@ def get_or_create_drug(cur, name):
         return None
 
     # Check if already exists
-    cur.execute("SELECT id FROM drugs WHERE name = %s", (name,))
+    name_lower = name.strip().lower()
+
+    cur.execute("SELECT id FROM drugs WHERE LOWER(name) = %s", (name_lower,))
     result = cur.fetchone()
     if result:
         return result[0]
@@ -169,19 +170,19 @@ def get_or_create_drug(cur, name):
         ) VALUES (%s, %s, %s, %s, NOW(), NOW())
         RETURNING id
     """, (
-        name,
-        drug_uuid,
+        name_lower,
+        str(uuid.uuid5(uuid.NAMESPACE_DNS, name_lower)),
         True,       # active: default True
         None        # class_type: not available in JSON
     ))
     return cur.fetchone()[0]
 
 def get_or_create_source_drug(cur, drug, source):
-    name = drug["name"]
+    name = drug["name"].strip().lower()
     source=map_source(source)
     # Check if already exists (unique index on name + source)
     cur.execute("""
-        SELECT id FROM source_drugs WHERE name = %s AND source = %s
+    SELECT id FROM source_drugs WHERE LOWER(name) = %s AND source = %s
     """, (name, source))
     result = cur.fetchone()
     if result:
@@ -238,11 +239,17 @@ def insert_eligibility_description(cur, program_id, description):
         """, (program_id, "eligibility_description", description))
 
 def insert_diagnosis_code(cur, program_id, code):
-    if code and code.strip():
-        cur.execute("""
-            INSERT INTO program_details (program_id, attr, value, created_at, updated_at)
-            VALUES (%s, %s, %s, NOW(), NOW())
-        """, (program_id, "diagnosis_code", code))
+    if isinstance(code, str):
+        code = [code]  # wrap string into list
+
+    if isinstance(code, list):
+        for c in code:
+            if c and isinstance(c, str) and c.strip():
+                cur.execute("""
+                    INSERT INTO program_details (program_id, attr, value, created_at, updated_at)
+                    VALUES (%s, %s, %s, NOW(), NOW())
+                """, (program_id, "diagnosis_code", c.strip()))
+
 
 
 def insert_program_links(cur, program_id, entries, link_type):
@@ -267,16 +274,120 @@ def insert_income_eligibility(cur, program_id, fpl_percent, state_id=1):
             created_at,
             updated_at
         ) VALUES (%s, %s, %s, NOW(), NOW())
-    """, (program_id, state_id, fpl_percent+"%"))
+    """, (program_id, state_id, fpl_percent))
 
 def link_tables(cur, table, cols, values):
     cur.execute(f"""
         SELECT 1 FROM {table} WHERE {' AND '.join([f"{c} = %s" for c in cols])}
     """, values)
     if not cur.fetchone():
+        # Add created_at and updated_at to the columns and values
+        cols_with_timestamps = cols + ['created_at', 'updated_at']
+        values_with_timestamps = values + ['NOW()', 'NOW()']
         cur.execute(f"""
-            INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(values))})
+            INSERT INTO {table} ({', '.join(cols_with_timestamps)}) 
+            VALUES ({', '.join(['%s'] * len(values) + ['NOW()', 'NOW()'])})
         """, values)
+
+def get_or_create_condition(cur, name):
+    if not name or name.lower() == "nan":
+        return None
+    
+    name = name.strip().lower()
+    cur.execute("SELECT id FROM conditions WHERE LOWER(name) = %s", (name,))
+    result = cur.fetchone()
+    if result:
+        return result[0]
+    
+    cur.execute("""
+        INSERT INTO conditions (name, created_at, updated_at)
+        VALUES (%s, NOW(), NOW())
+        RETURNING id
+    """, (name,))
+    return cur.fetchone()[0]
+
+def insert_program_condition(cur, program_id, condition_name):
+    if not condition_name or condition_name.lower() == "nan":
+        return
+    
+    condition_id = get_or_create_condition(cur, condition_name)
+    if condition_id:
+        cur.execute("""
+            INSERT INTO program_conditions (program_id, condition_id, created_at, updated_at)
+            VALUES (%s, %s, NOW(), NOW())
+            ON CONFLICT DO NOTHING
+        """, (program_id, condition_id))
+
+def insert_eligibility(cur, program_id, insurance_types):
+    if not insurance_types:
+        return
+    
+    # Map insurance types to eligibility fields
+    eligibility_data = {
+        'uninsured': 'no',
+        'medicare_part_d': 'no',
+        'prescription_coverage': 'no',
+        'denied_coverage': 'no',
+        'commercial': 'no',
+        'employer': 'no',
+        'medicare': 'no',
+        'medicaid': 'no',
+        'govt': 'no',
+        'under_insured': 'no'
+    }
+    
+    # Update based on provided insurance types
+    for ins_type in insurance_types:
+        ins_type = ins_type.lower()
+        if 'private' in ins_type or 'commercial' in ins_type:
+            eligibility_data['commercial'] = 'yes'
+        elif 'medicare' in ins_type:
+            eligibility_data['medicare'] = 'yes'
+        elif 'medicaid' in ins_type:
+            eligibility_data['medicaid'] = 'yes'
+        elif 'employer' in ins_type:
+            eligibility_data['employer'] = 'yes'
+        elif 'other' in ins_type:
+            eligibility_data['uninsured'] = 'yes'
+    
+    cur.execute("""
+        INSERT INTO eligibilities (
+            program_id, uninsured, medicare_part_d, prescription_coverage,
+            denied_coverage, commercial, employer, medicare, medicaid, govt,
+            under_insured, created_at, updated_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+    """, (
+        program_id,
+        eligibility_data['uninsured'],
+        eligibility_data['medicare_part_d'],
+        eligibility_data['prescription_coverage'],
+        eligibility_data['denied_coverage'],
+        eligibility_data['commercial'],
+        eligibility_data['employer'],
+        eligibility_data['medicare'],
+        eligibility_data['medicaid'],
+        eligibility_data['govt'],
+        eligibility_data['under_insured']
+    ))
+
+def insert_diagnosis_code(cur, program_id, diagnosis_codes):
+    if not diagnosis_codes:
+        return
+    
+    for code_entry in diagnosis_codes:
+        if isinstance(code_entry, dict):
+            code = code_entry.get('code')
+            description = code_entry.get('description', '')
+            if code:
+                cur.execute("""
+                    INSERT INTO program_details (program_id, attr, value, created_at, updated_at)
+                    VALUES (%s, %s, %s, NOW(), NOW())
+                """, (program_id, 'diagnosis_code', f"{code}: {description}"))
+        elif isinstance(code_entry, str):
+            cur.execute("""
+                INSERT INTO program_details (program_id, attr, value, created_at, updated_at)
+                VALUES (%s, %s, %s, NOW(), NOW())
+            """, (program_id, 'diagnosis_code', code_entry))
 
 # --- Main Migration Function ---
 def migrate_data():
@@ -294,14 +405,25 @@ def migrate_data():
             if "contact" in entry:
                 insert_program_contact_details(cur, prog_id, entry["contact"])
 
+            # Add condition
+            if "condition_name" in entry:
+                insert_program_condition(cur, prog_id, entry["condition_name"])
+
+            # Add disease description
             if "disease_description" in entry:
                 insert_disease_description(cur, prog_id, entry["disease_description"])
 
+            # Add eligibility description
             if "eligibility_description" in entry:
                 insert_eligibility_description(cur, prog_id, entry["eligibility_description"])
 
+            # Add diagnosis codes
             if "diagnosis_code" in entry:
                 insert_diagnosis_code(cur, prog_id, entry["diagnosis_code"])
+
+            # Add insurance types to eligibilities
+            if "insurance_types" in entry:
+                insert_eligibility(cur, prog_id, entry["insurance_types"])
 
             # Add income_eligibility info if present
             fpl = entry.get("house_hold_income_limit_fpl_percent")
