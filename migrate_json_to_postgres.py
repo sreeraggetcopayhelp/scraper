@@ -322,33 +322,46 @@ def insert_eligibility(cur, program_id, insurance_types):
     if not insurance_types:
         return
     
-    # Map insurance types to eligibility fields
+    # Constants from EligibilityCheck model
+    UNINSURED = 'uninsured'
+    MEDICAID = 'medicaid'
+    MEDICARE = 'medicare'
+    VETERAN_AFFAIRS = 'veteran_affairs'
+    PRIVATE_COMMERCIAL = 'private_commercial'
+    PRIVATE_EMPLOYER_SPONSORED = 'private_employer_sponsored'
+    
+    # Constants from Eligibility model
+    ELIGIBLE = 'ELIGIBLE'
+    NOT_ELIGIBLE = 'NOT ELIGIBLE'
+    MAY_BE_ELIGIBLE = 'MAY BE ELIGIBLE'
+    
+    # Initialize eligibility data with default values
     eligibility_data = {
-        'uninsured': 'no',
-        'medicare_part_d': 'no',
-        'prescription_coverage': 'no',
-        'denied_coverage': 'no',
-        'commercial': 'no',
-        'employer': 'no',
-        'medicare': 'no',
-        'medicaid': 'no',
-        'govt': 'no',
-        'under_insured': 'no'
+        'uninsured': NOT_ELIGIBLE,
+        'medicare_part_d': NOT_ELIGIBLE,
+        'prescription_coverage': NOT_ELIGIBLE,
+        'denied_coverage': NOT_ELIGIBLE,
+        'commercial': NOT_ELIGIBLE,
+        'employer': NOT_ELIGIBLE,
+        'medicare': NOT_ELIGIBLE,
+        'medicaid': NOT_ELIGIBLE,
+        'govt': NOT_ELIGIBLE,
+        'under_insured': NOT_ELIGIBLE
     }
     
-    # Update based on provided insurance types
+    # Map insurance types to eligibility fields
     for ins_type in insurance_types:
         ins_type = ins_type.lower()
         if 'private' in ins_type or 'commercial' in ins_type:
-            eligibility_data['commercial'] = 'yes'
+            eligibility_data['commercial'] = ELIGIBLE
         elif 'medicare' in ins_type:
-            eligibility_data['medicare'] = 'yes'
+            eligibility_data['medicare'] = ELIGIBLE
         elif 'medicaid' in ins_type:
-            eligibility_data['medicaid'] = 'yes'
+            eligibility_data['medicaid'] = ELIGIBLE
         elif 'employer' in ins_type:
-            eligibility_data['employer'] = 'yes'
+            eligibility_data['employer'] = ELIGIBLE
         elif 'other' in ins_type:
-            eligibility_data['uninsured'] = 'yes'
+            eligibility_data['uninsured'] = ELIGIBLE
     
     cur.execute("""
         INSERT INTO eligibilities (
